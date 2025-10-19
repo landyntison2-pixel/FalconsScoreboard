@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pro NFL Scoreboard</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    font-family: Arial, sans-serif;
+    background: black;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .scoreboard-container {
+    width: 95%;
+    max-width: 1600px;
+    height: 90%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 0 40px rgba(0,0,0,0.7);
+    position: relative;
+  }
+
+  .teams-row {
+    display: flex;
+    flex: 1;
+  }
+
+  .team-side {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    color: white;
+    transition: background 1s;
+  }
+
+  .left { background: linear-gradient(45deg,#a71930,#ff1a3c); animation: pulseLeft 4s infinite alternate; }
+  .right { background: linear-gradient(45deg,#b3995d,#ffe680); animation: pulseRight 4s infinite alternate; }
+
+  @keyframes pulseLeft { from { filter: brightness(1); } to { filter: brightness(1.2); } }
+  @keyframes pulseRight { from { filter: brightness(1); } to { filter: brightness(1.2); } }
+
+  .team-name { font-size: 5vw; font-weight: bold; text-align: center; text-transform: uppercase; margin-bottom: 10px; }
+  .score { font-size: 10vw; font-weight: bold; transition: transform 0.5s; }
+  .logo { width: 10vw; height: auto; margin-bottom: 10px; }
+
+  /* Bottom info bar inside container */
+  .info-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0,0,0,0.85);
+    padding: 20px 30px;
+    border-radius: 20px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    font-size: 1.8vw;
+    color: white;
+    z-index: 10;
+    margin-top: auto; /* ensures it stays at bottom of container */
+  }
+
+  .info-bar .info-side {
+    white-space: nowrap;
+    text-align: center;
+    flex: 1;
+  }
+
+  .info-bar .info-center {
+    text-align: center;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .info-bar .info-center div {
+    margin: 2px 0;
+    font-weight: bold;
+  }
+
+  #game-clock {
+    font-size: 2vw;
+  }
+
+  @media (max-width: 1200px) {
+    .info-bar {
+      flex-direction: column;
+      font-size: 2.2vw;
+      padding: 15px 20px;
+    }
+
+    .info-bar .info-side {
+      margin-bottom: 10px;
+    }
+
+    .info-bar .info-center {
+      margin-bottom: 10px;
+    }
+  }
+
+  .highlight { box-shadow: 0 0 30px 10px yellow; border-radius: 15px; }
+
+  #touchdown-video {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    display: none;
+    max-width: 80%;
+    max-height: 80%;
+    z-index: 999;
+    opacity: 0;
+    transition: opacity 0.5s, transform 0.5s;
+  }
+</style>
+</head>
+<body>
+<div class="scoreboard-container">
+  <div class="teams-row">
+    <div class="team-side left" id="left-side">
+      <img src="falcons.png" alt="Falcons Logo" class="logo">
+      <div class="team-name" id="team-left-name">Falcons</div>
+      <div class="score" id="score-left">0</div>
+    </div>
+
+    <div class="team-side right" id="right-side">
+      <img src="49ers.png" alt="49ers Logo" class="logo">
+      <div class="team-name" id="team-right-name">49ers</div>
+      <div class="score" id="score-right">0</div>
+    </div>
+  </div>
+
+  <div class="info-bar">
+    <div class="info-side" id="timeouts">T.O.: Falcons 3 | 49ers 3</div>
+    <div class="info-center">
+      <div id="game-clock">15:00</div>
+      <div id="down-distance">1st & 10</div>
+      <div id="quarter">Q1</div>
+    </div>
+    <div class="info-side" id="possession">🏈 Falcons</div>
+  </div>
+
+  <video id="touchdown-video" src="Touchdown.mp4"></video>
+</div>
+
+<script>
+const leftScoreEl = document.getElementById('score-left');
+const rightScoreEl = document.getElementById('score-right');
+const quarterEl = document.getElementById('quarter');
+const clockEl = document.getElementById('game-clock');
+const possessionEl = document.getElementById('possession');
+const downDistanceEl = document.getElementById('down-distance');
+const timeoutsEl = document.getElementById('timeouts');
+const tdVideo = document.getElementById('touchdown-video');
+const leftSide = document.getElementById('left-side');
+const rightSide = document.getElementById('right-side');
+
+let prevLeft = 0;
+let prevRight = 0;
+let prevQuarter = 1;
+let prevDownDistance = '';
+let prevTimeouts = '';
+
+const GAME_ID = "401772924"; 
+const API_URL = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${GAME_ID}`;
+
+async function fetchScore(){
+  try{
+    const res = await fetch(API_URL);
+    const data = await res.json();
+    const competitors = data.header.competitions[0].competitors;
+    const home = competitors.find(t=>t.homeAway==="home");
+    const away = competitors.find(t=>t.homeAway==="away");
+
+    const leftTeam = away.team.displayName;
+    const rightTeam = home.team.displayName;
+
+    const leftScore = parseInt(away.score);
+    const rightScore = parseInt(home.score);
+
+    const quarter = data.header.competitions[0].status.period;
+    const possession = data.drives.current?.team?.displayName || leftTeam;
+    const downDistance = data.drives.current?.yardText || "1st & 10";
+    const timeoutsLeft = away.timeouts || 3;
+    const timeoutsRight = home.timeouts || 3;
+    const timeoutsString = `T.O.: ${leftTeam} ${timeoutsLeft} | ${rightTeam} ${timeoutsRight}`;
+
+    const gameClock = data.header.competitions[0].status.displayClock || "15:00";
+    clockEl.textContent = gameClock;
+
+    document.getElementById('team-left-name').textContent = leftTeam;
+    document.getElementById('team-right-name').textContent = rightTeam;
+
+    if(leftScore!==prevLeft){
+      leftScoreEl.style.transform='scale(1.6)';
+      setTimeout(()=>leftScoreEl.style.transform='scale(1)',500);
+    }
+    if(rightScore!==prevRight){
+      rightScoreEl.style.transform='scale(1.6)';
+      setTimeout(()=>rightScoreEl.style.transform='scale(1)',500);
+    }
+
+    if(leftScore>prevLeft){ leftSide.style.background="#ff4d4d"; setTimeout(()=>leftSide.style.background="linear-gradient(45deg,#a71930,#ff1a3c)",500);}
+    if(rightScore>prevRight){ rightSide.style.background="#ffe680"; setTimeout(()=>rightSide.style.background="linear-gradient(45deg,#b3995d,#ffe680)",500);}
+
+    if(possession===leftTeam){ leftSide.classList.add('highlight'); rightSide.classList.remove('highlight');}
+    else{ rightSide.classList.add('highlight'); leftSide.classList.remove('highlight');}
+
+    if(leftScore>prevLeft || rightScore>prevRight){
+      tdVideo.style.display='block';
+      tdVideo.style.opacity=1;
+      tdVideo.style.transform='translate(-50%,-50%) scale(1)';
+      tdVideo.play();
+      tdVideo.onended=()=>{ tdVideo.style.opacity=0; tdVideo.style.transform='translate(-50%,-50%) scale(0.8)'; setTimeout(()=>tdVideo.style.display='none',500);}
+    }
+
+    if(downDistance!==prevDownDistance){
+      downDistanceEl.style.transform='translateX(-100%)';
+      setTimeout(()=>{downDistanceEl.textContent=downDistance; downDistanceEl.style.transform='translateX(0)';},200);
+    }
+
+    if(timeoutsString!==prevTimeouts){
+      timeoutsEl.style.opacity=0;
+      setTimeout(()=>{timeoutsEl.textContent=timeoutsString; timeoutsEl.style.opacity=1;},300);
+    }
+
+    leftScoreEl.textContent = leftScore;
+    rightScoreEl.textContent = rightScore;
+    quarterEl.textContent = `Q${quarter}`;
+    possessionEl.textContent = `🏈 ${possession}`;
+
+    prevLeft=leftScore;
+    prevRight=rightScore;
+    prevDownDistance=downDistance;
+    prevTimeouts=timeoutsString;
+
+  }catch(err){ console.error("Error fetching ESPN data:",err);}
+}
+
+fetchScore();
+setInterval(fetchScore,15000); // refresh every 15 seconds
+</script>
+</body>
+</html>
